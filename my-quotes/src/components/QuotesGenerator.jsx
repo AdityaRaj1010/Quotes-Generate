@@ -49,29 +49,68 @@ export default function QuotesGenerator() {
     }
   ];
 
-  // Try multiple API approaches
-  async function fetchFromAPI(url) {
+  // Determine API base URL based on environment
+  const getApiUrl = (endpoint) => {
+    if (import.meta.env.DEV) {
+      // Development: use proxy
+      return `/api${endpoint}`;
+    } else {
+      // Production: use direct API calls
+      return `https://api.quotable.io${endpoint}`;
+    }
+  };
+
+  // Try multiple API approaches with proper error handling
+  async function fetchFromAPI(endpoint) {
     const approaches = [
-      // Try direct API call first (works in production)
-      () => fetch(url.replace('/api', 'https://api.quotable.io')),
-      // Try with proxy (development)
-      () => fetch(url),
-      // Try with CORS proxy as fallback
-      () => fetch(`https://corsproxy.io/?${encodeURIComponent(url.replace('/api', 'https://api.quotable.io'))}`),
+      // Primary approach based on environment
+      async () => {
+        const url = getApiUrl(endpoint);
+        console.log('Trying primary approach:', url);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        return await res.json();
+      },
+      
+      // Fallback: Direct API call (in case proxy fails in dev)
+      async () => {
+        const url = `https://api.quotable.io${endpoint}`;
+        console.log('Trying direct API approach:', url);
+        const res = await fetch(url, {
+          mode: 'cors',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        return await res.json();
+      },
+      
+      // Last resort: CORS proxy
+      async () => {
+        const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(`https://api.quotable.io${endpoint}`)}`;
+        console.log('Trying CORS proxy approach:', proxiedUrl);
+        const res = await fetch(proxiedUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        return await res.json();
+      }
     ];
 
-    for (const approach of approaches) {
+    let lastError;
+    for (const [index, approach] of approaches.entries()) {
       try {
-        const res = await approach();
-        if (res.ok) {
-          return await res.json();
-        }
+        const result = await approach();
+        console.log(`API approach ${index + 1} succeeded`);
+        return result;
       } catch (err) {
-        console.log('Approach failed, trying next...', err.message);
+        console.log(`API approach ${index + 1} failed:`, err.message);
+        lastError = err;
         continue;
       }
     }
-    throw new Error('All API approaches failed');
+    
+    throw new Error(`All API approaches failed. Last error: ${lastError?.message || 'Unknown error'}`);
   }
   
   // Fetch a random quote (optionally by tag)
@@ -79,18 +118,19 @@ export default function QuotesGenerator() {
     setLoading(true);
     setError(null);
     try {
-      const url = optionalTag
-        ? `/api/random?tags=${encodeURIComponent(optionalTag)}`
-        : `/api/random`;
+      const endpoint = optionalTag
+        ? `/random?tags=${encodeURIComponent(optionalTag)}`
+        : `/random`;
       
-      const data = await fetchFromAPI(url);
+      const data = await fetchFromAPI(endpoint);
       setQuote(data);
+      console.log('Successfully fetched quote:', data.author);
     } catch (err) {
       console.error("All fetch attempts failed:", err);
       // Use random fallback quote
       const randomFallback = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
       setQuote(randomFallback);
-      setError("Using offline quote (API unavailable)");
+      setError("Using offline quote (API temporarily unavailable)");
     } finally {
       setLoading(false);
     }
@@ -102,11 +142,12 @@ export default function QuotesGenerator() {
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/search/quotes?query=${encodeURIComponent(query)}&limit=1`;
-      const data = await fetchFromAPI(url);
+      const endpoint = `/search/quotes?query=${encodeURIComponent(query)}&limit=1`;
+      const data = await fetchFromAPI(endpoint);
       
       if (data.count && data.results && data.results.length > 0) {
         setQuote(data.results[0]);
+        console.log('Successfully searched quotes');
       } else {
         // Search in fallback quotes if API search fails
         const searchResults = fallbackQuotes.filter(q => 
@@ -117,7 +158,7 @@ export default function QuotesGenerator() {
         
         if (searchResults.length > 0) {
           setQuote(searchResults[0]);
-          setError("Using offline search results (API unavailable)");
+          setError("Using offline search results (API temporarily unavailable)");
         } else {
           setError("No results found in offline quotes.");
         }
@@ -133,7 +174,7 @@ export default function QuotesGenerator() {
       
       if (searchResults.length > 0) {
         setQuote(searchResults[0]);
-        setError("Using offline search results (API unavailable)");
+        setError("Using offline search results (API temporarily unavailable)");
       } else {
         setError("No results found in offline quotes.");
       }
