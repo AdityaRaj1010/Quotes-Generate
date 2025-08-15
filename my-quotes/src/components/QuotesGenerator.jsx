@@ -114,13 +114,30 @@ export default function QuotesGenerator() {
     const isDev = import.meta.env.DEV;
     
     const apis = [
-      // API 1: ZenQuotes
+      // API 1: ZenQuotes (most reliable)
       async () => {
         console.log('Trying ZenQuotes API...');
-        const url = isDev ? '/api/zenquotes/random' : 'https://zenquotes.io/api/random';
-        const response = await fetch(url);
+        let url, options = {};
+        
+        if (isDev) {
+          url = '/api/zenquotes/random';
+        } else {
+          // Production: try different approaches for ZenQuotes
+          // First try a CORS proxy that works well
+          url = 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://zenquotes.io/api/random');
+        }
+        
+        const response = await fetch(url, options);
         if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
-        const data = await response.json();
+        
+        let data;
+        if (isDev) {
+          data = await response.json();
+        } else {
+          const proxyData = await response.json();
+          data = JSON.parse(proxyData.contents);
+        }
+        
         return {
           _id: `zen-${Date.now()}`,
           content: data[0].q,
@@ -129,13 +146,38 @@ export default function QuotesGenerator() {
         };
       },
       
-      // API 2: Quotable (original)
+      // API 2: Alternative CORS proxy for ZenQuotes
       async () => {
-        console.log('Trying Quotable API...');
-        const url = isDev ? '/api/quotable/random' : 'https://api.quotable.io/random';
+        console.log('Trying alternative CORS proxy...');
+        const response = await fetch('https://corsproxy.io/?https://zenquotes.io/api/random');
+        if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
+        const data = await response.json();
+        return {
+          _id: `proxy-zen-${Date.now()}`,
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+          tags: ['inspiration']
+        };
+      },
+      
+      // API 3: Try Quotable with CORS proxy
+      async () => {
+        console.log('Trying Quotable with CORS proxy...');
+        const url = isDev 
+          ? '/api/quotable/random' 
+          : 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.quotable.io/random');
+          
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Quotable HTTP ${response.status}`);
-        const data = await response.json();
+        
+        let data;
+        if (isDev) {
+          data = await response.json();
+        } else {
+          const proxyData = await response.json();
+          data = JSON.parse(proxyData.contents);
+        }
+        
         return {
           _id: data._id || `quotable-${Date.now()}`,
           content: data.content,
@@ -144,17 +186,16 @@ export default function QuotesGenerator() {
         };
       },
       
-      // API 3: Use a working CORS proxy as last resort
+      // API 4: Try a simple free quote API that usually has good CORS
       async () => {
-        console.log('Trying CORS proxy with ZenQuotes...');
-        const response = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://zenquotes.io/api/random'));
-        if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
-        const proxyData = await response.json();
-        const data = JSON.parse(proxyData.contents);
+        console.log('Trying Quotegarden API...');
+        const response = await fetch('https://quote-garden.herokuapp.com/api/v3/quotes/random');
+        if (!response.ok) throw new Error(`Quotegarden HTTP ${response.status}`);
+        const data = await response.json();
         return {
-          _id: `proxy-zen-${Date.now()}`,
-          content: data[0].q,
-          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+          _id: `garden-${Date.now()}`,
+          content: data.data.quoteText.replace(/["""]/g, ''),
+          author: data.data.quoteAuthor,
           tags: ['inspiration']
         };
       }
