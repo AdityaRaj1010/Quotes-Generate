@@ -15,7 +15,7 @@ export default function QuotesGenerator() {
     }
   });
 
-  // Fallback quotes for when API is unavailable
+  // Fallback quotes for when APIs are unavailable
   const fallbackQuotes = [
     {
       _id: "fallback-1",
@@ -46,71 +46,130 @@ export default function QuotesGenerator() {
       content: "Success is not final, failure is not fatal: it is the courage to continue that counts.",
       author: "Winston Churchill",
       tags: ["success", "courage"]
+    },
+    {
+      _id: "fallback-6",
+      content: "Be yourself; everyone else is already taken.",
+      author: "Oscar Wilde",
+      tags: ["wisdom", "authenticity"]
+    },
+    {
+      _id: "fallback-7",
+      content: "Two things are infinite: the universe and human stupidity; and I'm not sure about the universe.",
+      author: "Albert Einstein",
+      tags: ["humor", "wisdom"]
+    },
+    {
+      _id: "fallback-8",
+      content: "In the middle of difficulty lies opportunity.",
+      author: "Albert Einstein",
+      tags: ["opportunity", "difficulty"]
+    },
+    {
+      _id: "fallback-9",
+      content: "Life is what happens to you while you're busy making other plans.",
+      author: "John Lennon",
+      tags: ["life", "wisdom"]
+    },
+    {
+      _id: "fallback-10",
+      content: "The only impossible journey is the one you never begin.",
+      author: "Tony Robbins",
+      tags: ["motivation", "journey"]
+    },
+    {
+      _id: "fallback-11",
+      content: "Yesterday is history, tomorrow is a mystery, today is a gift.",
+      author: "Eleanor Roosevelt",
+      tags: ["present", "wisdom"]
+    },
+    {
+      _id: "fallback-12",
+      content: "The best time to plant a tree was 20 years ago. The second best time is now.",
+      author: "Chinese Proverb",
+      tags: ["action", "wisdom"]
+    },
+    {
+      _id: "fallback-13",
+      content: "Don't watch the clock; do what it does. Keep going.",
+      author: "Sam Levenson",
+      tags: ["persistence", "motivation"]
+    },
+    {
+      _id: "fallback-14",
+      content: "The way to get started is to quit talking and begin doing.",
+      author: "Walt Disney",
+      tags: ["action", "motivation"]
+    },
+    {
+      _id: "fallback-15",
+      content: "If you want to lift yourself up, lift up someone else.",
+      author: "Booker T. Washington",
+      tags: ["kindness", "leadership"]
     }
   ];
 
-  // Determine API base URL based on environment
-  const getApiUrl = (endpoint) => {
-    if (import.meta.env.DEV) {
-      // Development: use proxy
-      return `/api${endpoint}`;
-    } else {
-      // Production: use direct API calls
-      return `https://api.quotable.io${endpoint}`;
-    }
-  };
-
-  // Try multiple API approaches with proper error handling
-  async function fetchFromAPI(endpoint) {
-    const approaches = [
-      // Primary approach based on environment
+  // Try multiple quote APIs
+  async function fetchFromAPI(endpoint, searchQuery = null) {
+    const apis = [
+      // API 1: ZenQuotes (reliable alternative)
       async () => {
-        const url = getApiUrl(endpoint);
-        console.log('Trying primary approach:', url);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return await res.json();
+        console.log('Trying ZenQuotes API...');
+        const response = await fetch('https://zenquotes.io/api/random');
+        if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
+        const data = await response.json();
+        return {
+          _id: `zen-${Date.now()}`,
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+          tags: ['inspiration']
+        };
       },
       
-      // Fallback: Direct API call (in case proxy fails in dev)
+      // API 2: Quotable (original - may be down)
       async () => {
+        console.log('Trying Quotable API...');
         const url = `https://api.quotable.io${endpoint}`;
-        console.log('Trying direct API approach:', url);
-        const res = await fetch(url, {
+        const response = await fetch(url, {
           mode: 'cors',
           headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           }
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return await res.json();
+        if (!response.ok) throw new Error(`Quotable HTTP ${response.status}`);
+        return await response.json();
       },
       
-      // Last resort: CORS proxy
+      // API 3: API Ninjas Quotes (requires no key for basic usage)
       async () => {
-        const proxiedUrl = `https://corsproxy.io/?${encodeURIComponent(`https://api.quotable.io${endpoint}`)}`;
-        console.log('Trying CORS proxy approach:', proxiedUrl);
-        const res = await fetch(proxiedUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return await res.json();
+        console.log('Trying API Ninjas...');
+        const response = await fetch('https://api.api-ninjas.com/v1/quotes');
+        if (!response.ok) throw new Error(`API Ninjas HTTP ${response.status}`);
+        const data = await response.json();
+        return {
+          _id: `ninja-${Date.now()}`,
+          content: data[0].quote,
+          author: data[0].author,
+          tags: [data[0].category || 'general']
+        };
       }
     ];
 
     let lastError;
-    for (const [index, approach] of approaches.entries()) {
+    for (const [index, api] of apis.entries()) {
       try {
-        const result = await approach();
-        console.log(`API approach ${index + 1} succeeded`);
+        const result = await api();
+        console.log(`API ${index + 1} succeeded:`, result.author);
         return result;
       } catch (err) {
-        console.log(`API approach ${index + 1} failed:`, err.message);
+        console.log(`API ${index + 1} failed:`, err.message);
         lastError = err;
         continue;
       }
     }
     
-    throw new Error(`All API approaches failed. Last error: ${lastError?.message || 'Unknown error'}`);
+    throw new Error(`All APIs failed. Last error: ${lastError?.message || 'Unknown error'}`);
   }
   
   // Fetch a random quote (optionally by tag)
@@ -118,19 +177,32 @@ export default function QuotesGenerator() {
     setLoading(true);
     setError(null);
     try {
-      const endpoint = optionalTag
-        ? `/random?tags=${encodeURIComponent(optionalTag)}`
-        : `/random`;
-      
-      const data = await fetchFromAPI(endpoint);
+      // For now, ignore tag filtering with alternative APIs
+      // Focus on getting working quotes first
+      const data = await fetchFromAPI('/random', null);
       setQuote(data);
-      console.log('Successfully fetched quote:', data.author);
+      console.log('Successfully fetched quote from API');
     } catch (err) {
-      console.error("All fetch attempts failed:", err);
+      console.error("All API attempts failed:", err);
       // Use random fallback quote
       const randomFallback = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
-      setQuote(randomFallback);
-      setError("Using offline quote (API temporarily unavailable)");
+      
+      // If tag is specified, try to find a matching fallback
+      if (optionalTag) {
+        const taggedFallbacks = fallbackQuotes.filter(q => 
+          q.tags.some(tag => tag.toLowerCase().includes(optionalTag.toLowerCase()))
+        );
+        if (taggedFallbacks.length > 0) {
+          setQuote(taggedFallbacks[Math.floor(Math.random() * taggedFallbacks.length)]);
+          setError(`Using offline ${optionalTag} quote (APIs temporarily unavailable)`);
+        } else {
+          setQuote(randomFallback);
+          setError(`No offline quotes found for "${optionalTag}". Using random offline quote.`);
+        }
+      } else {
+        setQuote(randomFallback);
+        setError("Using offline quote (APIs temporarily unavailable)");
+      }
     } finally {
       setLoading(false);
     }
@@ -141,45 +213,27 @@ export default function QuotesGenerator() {
     if (!query) return fetchRandom();
     setLoading(true);
     setError(null);
-    try {
-      const endpoint = `/search/quotes?query=${encodeURIComponent(query)}&limit=1`;
-      const data = await fetchFromAPI(endpoint);
-      
-      if (data.count && data.results && data.results.length > 0) {
-        setQuote(data.results[0]);
-        console.log('Successfully searched quotes');
+    
+    // For now, search only works with fallback quotes since APIs have different search formats
+    console.log('Searching in offline quotes for:', query);
+    
+    const searchResults = fallbackQuotes.filter(q => 
+      q.content.toLowerCase().includes(query.toLowerCase()) ||
+      q.author.toLowerCase().includes(query.toLowerCase()) ||
+      q.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
+    );
+    
+    setLoading(false);
+    
+    if (searchResults.length > 0) {
+      setQuote(searchResults[0]);
+      if (searchResults.length === 1) {
+        setError("Found 1 matching offline quote");
       } else {
-        // Search in fallback quotes if API search fails
-        const searchResults = fallbackQuotes.filter(q => 
-          q.content.toLowerCase().includes(query.toLowerCase()) ||
-          q.author.toLowerCase().includes(query.toLowerCase()) ||
-          q.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
-        );
-        
-        if (searchResults.length > 0) {
-          setQuote(searchResults[0]);
-          setError("Using offline search results (API temporarily unavailable)");
-        } else {
-          setError("No results found in offline quotes.");
-        }
+        setError(`Found ${searchResults.length} matching offline quotes (showing first)`);
       }
-    } catch (err) {
-      console.error("Search error:", err);
-      // Search in fallback quotes
-      const searchResults = fallbackQuotes.filter(q => 
-        q.content.toLowerCase().includes(query.toLowerCase()) ||
-        q.author.toLowerCase().includes(query.toLowerCase()) ||
-        q.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
-      );
-      
-      if (searchResults.length > 0) {
-        setQuote(searchResults[0]);
-        setError("Using offline search results (API temporarily unavailable)");
-      } else {
-        setError("No results found in offline quotes.");
-      }
-    } finally {
-      setLoading(false);
+    } else {
+      setError("No results found in offline quotes. Try 'motivation', 'wisdom', 'success', etc.");
     }
   }
 
