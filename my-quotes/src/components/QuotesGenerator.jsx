@@ -109,13 +109,16 @@ export default function QuotesGenerator() {
     }
   ];
 
-  // Try multiple quote APIs
-  async function fetchFromAPI(endpoint, searchQuery = null) {
+  // Try multiple quote APIs with environment-aware URLs
+  async function fetchFromAPI() {
+    const isDev = import.meta.env.DEV;
+    
     const apis = [
-      // API 1: ZenQuotes (reliable alternative)
+      // API 1: ZenQuotes
       async () => {
         console.log('Trying ZenQuotes API...');
-        const response = await fetch('https://zenquotes.io/api/random');
+        const url = isDev ? '/api/zenquotes/random' : 'https://zenquotes.io/api/random';
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
         const data = await response.json();
         return {
@@ -126,32 +129,33 @@ export default function QuotesGenerator() {
         };
       },
       
-      // API 2: Quotable (original - may be down)
+      // API 2: Quotable (original)
       async () => {
         console.log('Trying Quotable API...');
-        const url = `https://api.quotable.io${endpoint}`;
-        const response = await fetch(url, {
-          mode: 'cors',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          }
-        });
+        const url = isDev ? '/api/quotable/random' : 'https://api.quotable.io/random';
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`Quotable HTTP ${response.status}`);
-        return await response.json();
-      },
-      
-      // API 3: API Ninjas Quotes (requires no key for basic usage)
-      async () => {
-        console.log('Trying API Ninjas...');
-        const response = await fetch('https://api.api-ninjas.com/v1/quotes');
-        if (!response.ok) throw new Error(`API Ninjas HTTP ${response.status}`);
         const data = await response.json();
         return {
-          _id: `ninja-${Date.now()}`,
-          content: data[0].quote,
-          author: data[0].author,
-          tags: [data[0].category || 'general']
+          _id: data._id || `quotable-${Date.now()}`,
+          content: data.content,
+          author: data.author,
+          tags: data.tags || ['general']
+        };
+      },
+      
+      // API 3: Use a working CORS proxy as last resort
+      async () => {
+        console.log('Trying CORS proxy with ZenQuotes...');
+        const response = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://zenquotes.io/api/random'));
+        if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
+        const proxyData = await response.json();
+        const data = JSON.parse(proxyData.contents);
+        return {
+          _id: `proxy-zen-${Date.now()}`,
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+          tags: ['inspiration']
         };
       }
     ];
@@ -177,9 +181,7 @@ export default function QuotesGenerator() {
     setLoading(true);
     setError(null);
     try {
-      // For now, ignore tag filtering with alternative APIs
-      // Focus on getting working quotes first
-      const data = await fetchFromAPI('/random', null);
+      const data = await fetchFromAPI();
       setQuote(data);
       console.log('Successfully fetched quote from API');
     } catch (err) {

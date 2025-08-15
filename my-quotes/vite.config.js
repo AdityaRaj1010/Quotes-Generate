@@ -7,22 +7,23 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api': {
+      '/api/zenquotes': {
+        target: 'https://zenquotes.io/api',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/zenquotes/, ''),
+        secure: false
+      },
+      '/api/quotable': {
         target: 'https://api.quotable.io',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-        secure: false, // This helps with SSL issues in development
-        configure: (proxy) => {
-          proxy.on('error', (err) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req) => {
-            console.log('Sending Request to the Target:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req) => {
-            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
-          });
-        }
+        rewrite: (path) => path.replace(/^\/api\/quotable/, ''),
+        secure: false
+      },
+      '/api/ninjas': {
+        target: 'https://api.api-ninjas.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ninjas/, ''),
+        secure: false
       }
     }
   }
