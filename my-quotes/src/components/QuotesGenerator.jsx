@@ -6,6 +6,7 @@ export default function QuotesGenerator() {
   const [error, setError] = useState(null);
   const [tag, setTag] = useState("");
   const [search, setSearch] = useState("");
+  const [usedQuoteIds, setUsedQuoteIds] = useState(new Set()); // Track used quotes
   const [favorites, setFavorites] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("quotes:favorites")) || [];
@@ -109,25 +110,31 @@ export default function QuotesGenerator() {
     }
   ];
 
-  // Try multiple quote APIs with environment-aware URLs
+  // Try multiple quote APIs with cache busting and rotation
   async function fetchFromAPI() {
     const isDev = import.meta.env.DEV;
+    const timestamp = Date.now();
     
     const apis = [
-      // API 1: ZenQuotes (most reliable)
+      // API 1: ZenQuotes with cache busting
       async () => {
         console.log('Trying ZenQuotes API...');
         let url, options = {};
         
         if (isDev) {
-          url = '/api/zenquotes/random';
+          url = `/api/zenquotes/random?t=${timestamp}`;
         } else {
-          // Production: try different approaches for ZenQuotes
-          // First try a CORS proxy that works well
-          url = 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://zenquotes.io/api/random');
+          // Add timestamp to prevent caching
+          url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://zenquotes.io/api/random?t=${timestamp}`);
         }
         
-        const response = await fetch(url, options);
+        const response = await fetch(url, {
+          cache: 'no-cache',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
         if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
         
         let data;
@@ -138,66 +145,79 @@ export default function QuotesGenerator() {
           data = JSON.parse(proxyData.contents);
         }
         
-        return {
-          _id: `zen-${Date.now()}`,
+        const quote = {
+          _id: `zen-${data[0].h || timestamp}`, // Use quote hash or timestamp as ID
           content: data[0].q,
           author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
           tags: ['inspiration']
         };
-      },
-      
-      // API 2: Alternative CORS proxy for ZenQuotes
-      async () => {
-        console.log('Trying alternative CORS proxy...');
-        const response = await fetch('https://corsproxy.io/?https://zenquotes.io/api/random');
-        if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
-        const data = await response.json();
-        return {
-          _id: `proxy-zen-${Date.now()}`,
-          content: data[0].q,
-          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
-          tags: ['inspiration']
-        };
-      },
-      
-      // API 3: Try Quotable with CORS proxy
-      async () => {
-        console.log('Trying Quotable with CORS proxy...');
-        const url = isDev 
-          ? '/api/quotable/random' 
-          : 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.quotable.io/random');
-          
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Quotable HTTP ${response.status}`);
         
-        let data;
-        if (isDev) {
-          data = await response.json();
-        } else {
-          const proxyData = await response.json();
-          data = JSON.parse(proxyData.contents);
+        // If we've seen this quote recently, try getting another one
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
+          throw new Error('Quote already used recently');
         }
         
-        return {
-          _id: data._id || `quotable-${Date.now()}`,
-          content: data.content,
-          author: data.author,
-          tags: data.tags || ['general']
-        };
+        return quote;
       },
       
-      // API 4: Try a simple free quote API that usually has good CORS
+      // API 2: Try to get from a pool of fallback quotes if ZenQuotes repeats
+      async () => {
+        console.log('Using curated quote pool...');
+        const availableQuotes = fallbackQuotes.filter(q => !usedQuoteIds.has(q._id));
+        
+        if (availableQuotes.length === 0) {
+          // Reset if we've used all quotes
+          setUsedQuoteIds(new Set());
+          return fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+        }
+        
+        return availableQuotes[Math.floor(Math.random() * availableQuotes.length)];
+      },
+      
+      // API 3: Alternative CORS proxy for ZenQuotes
+      async () => {
+        console.log('Trying alternative CORS proxy...');
+        const response = await fetch(`https://corsproxy.io/?https://zenquotes.io/api/random?t=${timestamp}`, {
+          cache: 'no-cache'
+        });
+        if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
+        const data = await response.json();
+        
+        const quote = {
+          _id: `proxy-zen-${data[0].h || timestamp}`,
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+          tags: ['inspiration']
+        };
+        
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
+          throw new Error('Quote already used recently');
+        }
+        
+        return quote;
+      },
+      
+      // API 4: Try Quotegarden with cache busting
       async () => {
         console.log('Trying Quotegarden API...');
-        const response = await fetch('https://quote-garden.herokuapp.com/api/v3/quotes/random');
+        const response = await fetch(`https://quote-garden.herokuapp.com/api/v3/quotes/random?t=${timestamp}`, {
+          cache: 'no-cache'
+        });
         if (!response.ok) throw new Error(`Quotegarden HTTP ${response.status}`);
         const data = await response.json();
-        return {
-          _id: `garden-${Date.now()}`,
+        
+        const quote = {
+          _id: data.data._id || `garden-${timestamp}`,
           content: data.data.quoteText.replace(/["""]/g, ''),
           author: data.data.quoteAuthor,
           tags: ['inspiration']
         };
+        
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 8) {
+          throw new Error('Quote already used recently');
+        }
+        
+        return quote;
       }
     ];
 
@@ -206,6 +226,19 @@ export default function QuotesGenerator() {
       try {
         const result = await api();
         console.log(`API ${index + 1} succeeded:`, result.author);
+        
+        // Track this quote as used
+        setUsedQuoteIds(prev => {
+          const newSet = new Set(prev);
+          newSet.add(result._id);
+          // Keep only the last 10 quote IDs to prevent memory buildup
+          if (newSet.size > 10) {
+            const oldestId = Array.from(newSet)[0];
+            newSet.delete(oldestId);
+          }
+          return newSet;
+        });
+        
         return result;
       } catch (err) {
         console.log(`API ${index + 1} failed:`, err.message);
@@ -251,13 +284,42 @@ export default function QuotesGenerator() {
     }
   }
 
-  // Search quotes (returns first match) - simple implementation
+  // Search quotes with better API integration
   async function searchQuotes(query) {
     if (!query) return fetchRandom();
     setLoading(true);
     setError(null);
     
-    // For now, search only works with fallback quotes since APIs have different search formats
+    try {
+      // First try to search in API if available
+      const isDev = import.meta.env.DEV;
+      const timestamp = Date.now();
+      
+      // Try Quotable search first (it has better search functionality)
+      if (isDev) {
+        const url = `/api/quotable/search/quotes?query=${encodeURIComponent(query)}&limit=5&t=${timestamp}`;
+        const response = await fetch(url, { cache: 'no-cache' });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results && data.results.length > 0) {
+            const randomResult = data.results[Math.floor(Math.random() * data.results.length)];
+            setQuote({
+              _id: randomResult._id,
+              content: randomResult.content,
+              author: randomResult.author,
+              tags: randomResult.tags || ['general']
+            });
+            setError(`Found ${data.results.length} results from API`);
+            setLoading(false);
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.log('API search failed, falling back to offline search:', err.message);
+    }
+    
+    // Fallback to offline search
     console.log('Searching in offline quotes for:', query);
     
     const searchResults = fallbackQuotes.filter(q => 
@@ -269,14 +331,15 @@ export default function QuotesGenerator() {
     setLoading(false);
     
     if (searchResults.length > 0) {
-      setQuote(searchResults[0]);
+      const randomResult = searchResults[Math.floor(Math.random() * searchResults.length)];
+      setQuote(randomResult);
       if (searchResults.length === 1) {
         setError("Found 1 matching offline quote");
       } else {
-        setError(`Found ${searchResults.length} matching offline quotes (showing first)`);
+        setError(`Found ${searchResults.length} matching offline quotes (showing random result)`);
       }
     } else {
-      setError("No results found in offline quotes. Try 'motivation', 'wisdom', 'success', etc.");
+      setError("No results found. Try keywords like 'motivation', 'wisdom', 'success', 'love', etc.");
     }
   }
 
