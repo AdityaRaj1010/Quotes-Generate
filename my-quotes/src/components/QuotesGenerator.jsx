@@ -113,7 +113,45 @@ export default function QuotesGenerator() {
     const isDev = import.meta.env.DEV;
     const timestamp = Date.now();
     const apis = [
-      // API 1: Try a different approach with a simple quote API
+      // API 1: ZenQuotes with cache busting (no problematic headers)
+      async () => {
+        console.log('Trying ZenQuotes API...');
+        let url;
+        
+        if (isDev) {
+          url = `/api/zenquotes/random?t=${timestamp}`;
+        } else {
+          // Add timestamp to prevent caching
+          url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://zenquotes.io/api/random?t=${timestamp}`);
+        }
+        
+        // Simple fetch without custom headers that cause CORS issues
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
+        
+        let data;
+        if (isDev) {
+          data = await response.json();
+        } else {
+          const proxyData = await response.json();
+          data = JSON.parse(proxyData.contents);
+        }
+        
+        const quote = {
+          _id: `zen-${data[0].h || timestamp}`, // Use quote hash or timestamp as ID
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
+        };
+        
+        // If we've seen this quote recently, try getting another one
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
+          throw new Error('Quote already used recently');
+        }
+        
+        return quote;
+      },
+      
+      // API 2: Try a different approach with a simple quote API
       async () => {
         console.log('Trying simple quote API...');
         // This API usually has better CORS support
@@ -134,44 +172,6 @@ export default function QuotesGenerator() {
 
         return quote;
       },
-      // API 2: ZenQuotes with cache busting (no problematic headers)
-      async () => {
-        console.log('Trying ZenQuotes API...');
-        let url;
-
-        if (isDev) {
-          url = `/api/zenquotes/random?t=${timestamp}`;
-        } else {
-          // Add timestamp to prevent caching
-          url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://zenquotes.io/api/random?t=${timestamp}`);
-        }
-
-        // Simple fetch without custom headers that cause CORS issues
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
-
-        let data;
-        if (isDev) {
-          data = await response.json();
-        } else {
-          const proxyData = await response.json();
-          data = JSON.parse(proxyData.contents);
-        }
-
-        const quote = {
-          _id: `zen-${data[0].h || timestamp}`, // Use quote hash or timestamp as ID
-          content: data[0].q,
-          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
-        };
-
-        // If we've seen this quote recently, try getting another one
-        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
-          throw new Error('Quote already used recently');
-        }
-
-        return quote;
-      },
-
       // API 3: Alternative CORS proxy for ZenQuotes
       async () => {
         console.log('Trying alternative CORS proxy...');
@@ -239,7 +239,7 @@ export default function QuotesGenerator() {
           setUsedQuoteIds(prev => {
             const newSet = new Set(prev);
             newSet.add(result._id);
-            // Keep only the last 10 quote IDs to prevent memory buildup
+            // Keeping only the last 10 quote IDs to prevent memory buildup
             if (newSet.size > 10) {
               const oldestId = Array.from(newSet)[0];
               newSet.delete(oldestId);
@@ -379,8 +379,6 @@ export default function QuotesGenerator() {
               <div className="text-center py-10">No quote yet — click New Quote</div>
             )}
           </div>
-
-
           {/* Favorites */}
           <div className="bg-white p-4 rounded-lg shadow-sm">
             <div className="flex items-center justify-between mb-3">
