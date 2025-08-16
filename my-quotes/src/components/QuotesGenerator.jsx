@@ -4,8 +4,6 @@ export default function QuotesGenerator() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  // const [tag, setTag] = useState("");
-  const [search, setSearch] = useState("");
   const [usedQuoteIds, setUsedQuoteIds] = useState(new Set()); // Track used quotes
   const [favorites, setFavorites] = useState(() => {
     try {
@@ -114,7 +112,6 @@ export default function QuotesGenerator() {
   async function fetchFromAPI() {
     const isDev = import.meta.env.DEV;
     const timestamp = Date.now();
-
     const apis = [
       // API 1: Try a different approach with a simple quote API
       async () => {
@@ -281,69 +278,6 @@ export default function QuotesGenerator() {
     setLoading(false);
   }
 
-  // Search quotes with better API integration
-  async function searchQuotes(query) {
-    if (!query) return fetchRandom();
-    setLoading(true);
-    setError(null);
-
-    try {
-      // First try to search in API if available
-      const isDev = import.meta.env.DEV;
-      const timestamp = Date.now();
-
-      // Try Quotable search first (it has better search functionality)
-      if (isDev) {
-        const url = `/api/quotable/search/quotes?query=${encodeURIComponent(query)}&limit=5&t=${timestamp}`;
-        const response = await fetch(url, { cache: 'no-cache' });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.results && data.results.length > 0) {
-            const randomResult = data.results[Math.floor(Math.random() * data.results.length)];
-            const quote = {
-              _id: randomResult._id || `quotable-${timestamp}`,
-              content: randomResult.content,
-              author: randomResult.author,
-              tags: randomResult.tags || ['general']
-            };
-            // console.log(randomResult.content);
-            // console.log(randomResult.author);
-            // console.log(randomResult.tags);
-            setQuote(quote);
-            // setError(`Found ${data.results.length} results from API`);
-            setLoading(false);
-            return;
-          }
-        }
-      }
-    } catch (err) {
-      console.log('API search failed, falling back to offline search:', err.message);
-    }
-
-    // Fallback to offline search
-    console.log('Searching in offline quotes for:', query);
-
-    const searchResults = fallbackQuotes.filter(q =>
-      q.content.toLowerCase().includes(query.toLowerCase()) ||
-      q.author.toLowerCase().includes(query.toLowerCase()) ||
-      q.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
-    );
-
-    setLoading(false);
-
-    if (searchResults.length > 0) {
-      const randomResult = searchResults[Math.floor(Math.random() * searchResults.length)];
-      setQuote(randomResult);
-      if (searchResults.length === 1) {
-        setError("Found 1 matching offline quote");
-      } else {
-        setError(`Found ${searchResults.length} matching offline quotes (showing random result)`);
-      }
-    } else {
-      setError("No results found. Try keywords like 'motivation', 'wisdom', 'success', 'love', etc.");
-    }
-  }
-
   useEffect(() => {
     // fetch an initial quote on mount
     fetchRandom();
@@ -390,26 +324,6 @@ export default function QuotesGenerator() {
         <header className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-extrabold">Quotes Generator</h1>
         </header>
-
-          {/* Search panel */}
-          <div className="bg-white p-4 rounded-lg shadow-sm flex gap-2">
-            <input
-              className="flex-1 px-3 py-2 border rounded-md"
-              placeholder="Search quotes (keyword)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") searchQuotes(search);
-              }}
-            />
-            <button
-              className="px-4 rounded-md border hover:bg-slate-50"
-              onClick={() => searchQuotes(search)}
-              disabled={loading}
-            >
-              {loading ? "..." : "Search"}
-            </button>
-          </div>
 
         <main className="space-y-4">
           <div className="bg-white p-6 rounded-2xl shadow-md">
