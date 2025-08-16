@@ -116,10 +116,10 @@ export default function QuotesGenerator() {
     const timestamp = Date.now();
     
     const apis = [
-      // API 1: ZenQuotes with cache busting
+      // API 1: ZenQuotes with cache busting (no problematic headers)
       async () => {
         console.log('Trying ZenQuotes API...');
-        let url, options = {};
+        let url;
         
         if (isDev) {
           url = `/api/zenquotes/random?t=${timestamp}`;
@@ -128,13 +128,8 @@ export default function QuotesGenerator() {
           url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://zenquotes.io/api/random?t=${timestamp}`);
         }
         
-        const response = await fetch(url, {
-          cache: 'no-cache',
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
+        // Simple fetch without custom headers that cause CORS issues
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
         
         let data;
@@ -160,26 +155,10 @@ export default function QuotesGenerator() {
         return quote;
       },
       
-      // API 2: Try to get from a pool of fallback quotes if ZenQuotes repeats
-      async () => {
-        console.log('Using curated quote pool...');
-        const availableQuotes = fallbackQuotes.filter(q => !usedQuoteIds.has(q._id));
-        
-        if (availableQuotes.length === 0) {
-          // Reset if we've used all quotes
-          setUsedQuoteIds(new Set());
-          return fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
-        }
-        
-        return availableQuotes[Math.floor(Math.random() * availableQuotes.length)];
-      },
-      
-      // API 3: Alternative CORS proxy for ZenQuotes
+      // API 2: Alternative CORS proxy for ZenQuotes
       async () => {
         console.log('Trying alternative CORS proxy...');
-        const response = await fetch(`https://corsproxy.io/?https://zenquotes.io/api/random?t=${timestamp}`, {
-          cache: 'no-cache'
-        });
+        const response = await fetch(`https://corsproxy.io/?https://zenquotes.io/api/random?t=${timestamp}`);
         if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
         const data = await response.json();
         
@@ -197,19 +176,39 @@ export default function QuotesGenerator() {
         return quote;
       },
       
-      // API 4: Try Quotegarden with cache busting
+      // API 3: Try a different approach with a simple quote API
       async () => {
-        console.log('Trying Quotegarden API...');
-        const response = await fetch(`https://quote-garden.herokuapp.com/api/v3/quotes/random?t=${timestamp}`, {
-          cache: 'no-cache'
-        });
-        if (!response.ok) throw new Error(`Quotegarden HTTP ${response.status}`);
+        console.log('Trying simple quote API...');
+        // This API usually has better CORS support
+        const response = await fetch(`https://api.quotable.io/random?t=${timestamp}`);
+        if (!response.ok) throw new Error(`Quotable Direct HTTP ${response.status}`);
         const data = await response.json();
         
         const quote = {
-          _id: data.data._id || `garden-${timestamp}`,
-          content: data.data.quoteText.replace(/["""]/g, ''),
-          author: data.data.quoteAuthor,
+          _id: data._id || `quotable-${timestamp}`,
+          content: data.content,
+          author: data.author,
+          tags: data.tags || ['general']
+        };
+        
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 8) {
+          throw new Error('Quote already used recently');
+        }
+        
+        return quote;
+      },
+      
+      // API 4: Try another CORS proxy service
+      async () => {
+        console.log('Trying third CORS proxy...');
+        const response = await fetch(`https://api.codetabs.com/v1/proxy?quest=https://zenquotes.io/api/random?t=${timestamp}`);
+        if (!response.ok) throw new Error(`CodeTabs Proxy HTTP ${response.status}`);
+        const data = await response.json();
+        
+        const quote = {
+          _id: `codetabs-zen-${data[0].h || timestamp}`,
+          content: data[0].q,
+          author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
           tags: ['inspiration']
         };
         
@@ -218,6 +217,20 @@ export default function QuotesGenerator() {
         }
         
         return quote;
+      },
+      
+      // API 5: Try to get from a pool of fallback quotes if APIs fail
+      async () => {
+        console.log('Using curated quote pool...');
+        const availableQuotes = fallbackQuotes.filter(q => !usedQuoteIds.has(q._id));
+        
+        if (availableQuotes.length === 0) {
+          // Reset if we've used all quotes
+          setUsedQuoteIds(new Set());
+          return fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+        }
+        
+        return availableQuotes[Math.floor(Math.random() * availableQuotes.length)];
       }
     ];
 
@@ -227,17 +240,19 @@ export default function QuotesGenerator() {
         const result = await api();
         console.log(`API ${index + 1} succeeded:`, result.author);
         
-        // Track this quote as used
-        setUsedQuoteIds(prev => {
-          const newSet = new Set(prev);
-          newSet.add(result._id);
-          // Keep only the last 10 quote IDs to prevent memory buildup
-          if (newSet.size > 10) {
-            const oldestId = Array.from(newSet)[0];
-            newSet.delete(oldestId);
-          }
-          return newSet;
-        });
+        // Track this quote as used (only for API quotes, not fallback)
+        if (index < 4) { // Only track actual API quotes
+          setUsedQuoteIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(result._id);
+            // Keep only the last 10 quote IDs to prevent memory buildup
+            if (newSet.size > 10) {
+              const oldestId = Array.from(newSet)[0];
+              newSet.delete(oldestId);
+            }
+            return newSet;
+          });
+        }
         
         return result;
       } catch (err) {
