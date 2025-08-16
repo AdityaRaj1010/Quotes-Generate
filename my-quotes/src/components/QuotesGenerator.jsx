@@ -4,7 +4,7 @@ export default function QuotesGenerator() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [tag, setTag] = useState("");
+  // const [tag, setTag] = useState("");
   const [search, setSearch] = useState("");
   const [usedQuoteIds, setUsedQuoteIds] = useState(new Set()); // Track used quotes
   const [favorites, setFavorites] = useState(() => {
@@ -114,24 +114,45 @@ export default function QuotesGenerator() {
   async function fetchFromAPI() {
     const isDev = import.meta.env.DEV;
     const timestamp = Date.now();
-    
+
     const apis = [
-      // API 1: ZenQuotes with cache busting (no problematic headers)
+      // API 1: Try a different approach with a simple quote API
+      async () => {
+        console.log('Trying simple quote API...');
+        // This API usually has better CORS support
+        const response = await fetch(`/api/quotable/random?t=${timestamp}`);
+        if (!response.ok) throw new Error(`Quotable Direct HTTP ${response.status}`);
+        const data = await response.json();
+
+        const quote = {
+          _id: data._id || `quotable-${timestamp}`,
+          content: data.content,
+          author: data.author,
+          tags: data.tags || ['general']
+        };
+
+        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 8) {
+          throw new Error('Quote already used recently');
+        }
+
+        return quote;
+      },
+      // API 2: ZenQuotes with cache busting (no problematic headers)
       async () => {
         console.log('Trying ZenQuotes API...');
         let url;
-        
+
         if (isDev) {
           url = `/api/zenquotes/random?t=${timestamp}`;
         } else {
           // Add timestamp to prevent caching
           url = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://zenquotes.io/api/random?t=${timestamp}`);
         }
-        
+
         // Simple fetch without custom headers that cause CORS issues
         const response = await fetch(url);
         if (!response.ok) throw new Error(`ZenQuotes HTTP ${response.status}`);
-        
+
         let data;
         if (isDev) {
           data = await response.json();
@@ -139,97 +160,73 @@ export default function QuotesGenerator() {
           const proxyData = await response.json();
           data = JSON.parse(proxyData.contents);
         }
-        
+
         const quote = {
           _id: `zen-${data[0].h || timestamp}`, // Use quote hash or timestamp as ID
           content: data[0].q,
           author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
-          tags: ['inspiration']
         };
-        
+
         // If we've seen this quote recently, try getting another one
         if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
           throw new Error('Quote already used recently');
         }
-        
+
         return quote;
       },
-      
-      // API 2: Alternative CORS proxy for ZenQuotes
+
+      // API 3: Alternative CORS proxy for ZenQuotes
       async () => {
         console.log('Trying alternative CORS proxy...');
         const response = await fetch(`https://corsproxy.io/?https://zenquotes.io/api/random?t=${timestamp}`);
         if (!response.ok) throw new Error(`CORS Proxy HTTP ${response.status}`);
         const data = await response.json();
-        
+
         const quote = {
           _id: `proxy-zen-${data[0].h || timestamp}`,
           content: data[0].q,
           author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
-          tags: ['inspiration']
         };
-        
+
         if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 10) {
           throw new Error('Quote already used recently');
         }
-        
+
         return quote;
       },
-      
-      // API 3: Try a different approach with a simple quote API
-      async () => {
-        console.log('Trying simple quote API...');
-        // This API usually has better CORS support
-        const response = await fetch(`https://api.quotable.io/random?t=${timestamp}`);
-        if (!response.ok) throw new Error(`Quotable Direct HTTP ${response.status}`);
-        const data = await response.json();
-        
-        const quote = {
-          _id: data._id || `quotable-${timestamp}`,
-          content: data.content,
-          author: data.author,
-          tags: data.tags || ['general']
-        };
-        
-        if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 8) {
-          throw new Error('Quote already used recently');
-        }
-        
-        return quote;
-      },
-      
+
+
       // API 4: Try another CORS proxy service
       async () => {
         console.log('Trying third CORS proxy...');
         const response = await fetch(`https://api.codetabs.com/v1/proxy?quest=https://zenquotes.io/api/random?t=${timestamp}`);
         if (!response.ok) throw new Error(`CodeTabs Proxy HTTP ${response.status}`);
         const data = await response.json();
-        
+
         const quote = {
           _id: `codetabs-zen-${data[0].h || timestamp}`,
           content: data[0].q,
           author: data[0].a === 'zenquotes.io' ? 'Unknown' : data[0].a,
-          tags: ['inspiration']
         };
-        
+
         if (usedQuoteIds.has(quote._id) && usedQuoteIds.size < 8) {
           throw new Error('Quote already used recently');
         }
-        
+
         return quote;
       },
-      
+
       // API 5: Try to get from a pool of fallback quotes if APIs fail
       async () => {
         console.log('Using curated quote pool...');
         const availableQuotes = fallbackQuotes.filter(q => !usedQuoteIds.has(q._id));
-        
+
         if (availableQuotes.length === 0) {
           // Reset if we've used all quotes
           setUsedQuoteIds(new Set());
           return fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
         }
-        
+
         return availableQuotes[Math.floor(Math.random() * availableQuotes.length)];
       }
     ];
@@ -239,7 +236,7 @@ export default function QuotesGenerator() {
       try {
         const result = await api();
         console.log(`API ${index + 1} succeeded:`, result.author);
-        
+
         // Track this quote as used (only for API quotes, not fallback)
         if (index < 4) { // Only track actual API quotes
           setUsedQuoteIds(prev => {
@@ -253,7 +250,7 @@ export default function QuotesGenerator() {
             return newSet;
           });
         }
-        
+
         return result;
       } catch (err) {
         console.log(`API ${index + 1} failed:`, err.message);
@@ -261,12 +258,12 @@ export default function QuotesGenerator() {
         continue;
       }
     }
-    
+
     throw new Error(`All APIs failed. Last error: ${lastError?.message || 'Unknown error'}`);
   }
-  
-  // Fetch a random quote (optionally by tag)
-  async function fetchRandom(optionalTag) {
+
+  // Fetch a random quote
+  async function fetchRandom() {
     setLoading(true);
     setError(null);
     try {
@@ -277,26 +274,11 @@ export default function QuotesGenerator() {
       console.error("All API attempts failed:", err);
       // Use random fallback quote
       const randomFallback = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
-      
-      // If tag is specified, try to find a matching fallback
-      if (optionalTag) {
-        const taggedFallbacks = fallbackQuotes.filter(q => 
-          q.tags.some(tag => tag.toLowerCase().includes(optionalTag.toLowerCase()))
-        );
-        if (taggedFallbacks.length > 0) {
-          setQuote(taggedFallbacks[Math.floor(Math.random() * taggedFallbacks.length)]);
-          setError(`Using offline ${optionalTag} quote (APIs temporarily unavailable)`);
-        } else {
-          setQuote(randomFallback);
-          setError(`No offline quotes found for "${optionalTag}". Using random offline quote.`);
-        }
-      } else {
-        setQuote(randomFallback);
-        setError("Using offline quote (APIs temporarily unavailable)");
-      }
-    } finally {
-      setLoading(false);
+
+      setQuote(randomFallback);
+      setError("Using offline quote (APIs temporarily unavailable)");
     }
+    setLoading(false);
   }
 
   // Search quotes with better API integration
@@ -304,12 +286,12 @@ export default function QuotesGenerator() {
     if (!query) return fetchRandom();
     setLoading(true);
     setError(null);
-    
+
     try {
       // First try to search in API if available
       const isDev = import.meta.env.DEV;
       const timestamp = Date.now();
-      
+
       // Try Quotable search first (it has better search functionality)
       if (isDev) {
         const url = `/api/quotable/search/quotes?query=${encodeURIComponent(query)}&limit=5&t=${timestamp}`;
@@ -318,13 +300,17 @@ export default function QuotesGenerator() {
           const data = await response.json();
           if (data.results && data.results.length > 0) {
             const randomResult = data.results[Math.floor(Math.random() * data.results.length)];
-            setQuote({
-              _id: randomResult._id,
+            const quote = {
+              _id: randomResult._id || `quotable-${timestamp}`,
               content: randomResult.content,
               author: randomResult.author,
               tags: randomResult.tags || ['general']
-            });
-            setError(`Found ${data.results.length} results from API`);
+            };
+            // console.log(randomResult.content);
+            // console.log(randomResult.author);
+            // console.log(randomResult.tags);
+            setQuote(quote);
+            // setError(`Found ${data.results.length} results from API`);
             setLoading(false);
             return;
           }
@@ -333,18 +319,18 @@ export default function QuotesGenerator() {
     } catch (err) {
       console.log('API search failed, falling back to offline search:', err.message);
     }
-    
+
     // Fallback to offline search
     console.log('Searching in offline quotes for:', query);
-    
-    const searchResults = fallbackQuotes.filter(q => 
+
+    const searchResults = fallbackQuotes.filter(q =>
       q.content.toLowerCase().includes(query.toLowerCase()) ||
       q.author.toLowerCase().includes(query.toLowerCase()) ||
       q.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
     );
-    
+
     setLoading(false);
-    
+
     if (searchResults.length > 0) {
       const randomResult = searchResults[Math.floor(Math.random() * searchResults.length)];
       setQuote(randomResult);
@@ -403,22 +389,27 @@ export default function QuotesGenerator() {
       <div className="w-full max-w-3xl">
         <header className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-extrabold">Quotes Generator</h1>
-          <div className="space-x-2">
+        </header>
+
+          {/* Search panel */}
+          <div className="bg-white p-4 rounded-lg shadow-sm flex gap-2">
             <input
-              className="px-3 py-1 border rounded-md"
-              placeholder="tag (e.g. wisdom, love)"
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
+              className="flex-1 px-3 py-2 border rounded-md"
+              placeholder="Search quotes (keyword)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchQuotes(search);
+              }}
             />
             <button
-              className="px-3 py-1 rounded-md border hover:bg-slate-50"
-              onClick={() => fetchRandom(tag)}
+              className="px-4 rounded-md border hover:bg-slate-50"
+              onClick={() => searchQuotes(search)}
               disabled={loading}
             >
-              {loading ? "Loading..." : "Random by Tag"}
+              {loading ? "..." : "Search"}
             </button>
           </div>
-        </header>
 
         <main className="space-y-4">
           <div className="bg-white p-6 rounded-2xl shadow-md">
@@ -475,25 +466,6 @@ export default function QuotesGenerator() {
             )}
           </div>
 
-          {/* Search panel */}
-          <div className="bg-white p-4 rounded-lg shadow-sm flex gap-2">
-            <input
-              className="flex-1 px-3 py-2 border rounded-md"
-              placeholder="Search quotes (keyword)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") searchQuotes(search);
-              }}
-            />
-            <button
-              className="px-4 rounded-md border hover:bg-slate-50"
-              onClick={() => searchQuotes(search)}
-              disabled={loading}
-            >
-              {loading ? "..." : "Search"}
-            </button>
-          </div>
 
           {/* Favorites */}
           <div className="bg-white p-4 rounded-lg shadow-sm">
@@ -532,14 +504,14 @@ export default function QuotesGenerator() {
                       <div className="text-sm text-slate-600">— {f.author}</div>
                     </div>
                     <div className="flex flex-col gap-2 ml-4">
-                      <button 
-                        className="px-2 py-1 border rounded-md hover:bg-slate-50" 
+                      <button
+                        className="px-2 py-1 border rounded-md hover:bg-slate-50"
                         onClick={() => setQuote(f)}
                       >
                         Open
                       </button>
-                      <button 
-                        className="px-2 py-1 border rounded-md hover:bg-slate-50" 
+                      <button
+                        className="px-2 py-1 border rounded-md hover:bg-slate-50"
                         onClick={() => toggleFavorite(f)}
                       >
                         Remove
